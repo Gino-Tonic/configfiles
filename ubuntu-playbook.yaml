@@ -1,0 +1,164 @@
+---
+- name: Ubuntu Desktop Setup with Packages and Configuration
+  hosts: localhost
+  connection: local
+
+
+
+  vars:
+    buildessentials:
+      - wget
+      - curl
+      - gpg
+      - ca-certificates
+
+    packages:
+      - tmux
+      - neovim
+      - nmap
+      - curl
+      - bat
+      - tor
+      - zsh
+      - zsh-syntax-highlighting
+      - zsh-autosuggestions
+      - regolith-desktop
+      - regolith-session-flashback
+      - regolith-look-lascaille
+      - regolith-look-ayu-dark
+      - code
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+
+    oh_my_zsh_dir: "{{ ansible_env.HOME }}/.oh-my-zsh"
+    zsh_plugins_dir: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/plugins"
+
+  tasks:
+    - name: Install buildessentials
+      apt:
+        name: "{{ buildessentials }}"
+        state: present
+        update_cache: yes
+      tags: buildessentials
+      become: yes
+
+
+
+    - name: Docker key add
+      become: yes
+      block:
+        - name: docker | add key
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            dest: /etc/apt/keyrings/docker.asc
+            
+        - name: docker | apt source
+          ansible.builtin.apt_repository:
+            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+    - name: VSCode key add
+      become: yes
+      block:
+        - name: VSCode | add key
+          ansible.builtin.get_url:
+            url: https://packages.microsoft.com/keys/microsoft.asc
+            dest: /etc/apt/keyrings/microsoft.asc
+            
+        - name: VSCode | apt source
+          ansible.builtin.apt_repository:
+            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.asc] https://packages.microsoft.com/repos/code stable main"
+            state: present
+
+    - name: Update apt cache and install required packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      tags: packages
+      become: yes
+
+## Oh-my-zsh config
+
+    - name: Set zsh as default shell
+      user:
+        name: "{{ ansible_user_id }}"
+        shell: /usr/bin/zsh
+      tags: zsh
+
+    - name: Install Oh My Zsh
+      cmd:
+        repo: https://github.com/ohmyzsh/ohmyzsh.git
+        dest: "{{ oh_my_zsh_dir }}"
+        update: yes
+      tags: ohmyzsh
+
+    - name: Ensure plugins directory exists
+      file:
+        path: "{{ zsh_plugins_dir }}"
+        state: directory
+      tags: zsh_plugins
+
+    # - name: Install zsh-autosuggestions plugin
+    #   git:
+    #     repo: https://github.com/zsh-users/zsh-autosuggestions.git
+    #     dest: "{{ zsh_plugins_dir }}/zsh-autosuggestions"
+    #     update: yes
+    #   tags: zsh_plugins
+
+    # - name: Install zsh-syntax-highlighting plugin
+    #   git:
+    #     repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+    #     dest: "{{ zsh_plugins_dir }}/zsh-syntax-highlighting"
+    #     update: yes
+    #   tags: zsh_plugins
+
+    - name: Install you-should-use plugin
+      git:
+        repo: https://github.com/MichaelAquilina/zsh-you-should-use.git
+        dest: "{{ zsh_plugins_dir }}/you-should-use"
+        update: yes
+      tags: zsh_plugins
+
+    - name: Configure .zshrc with required plugins
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        regexp: '^plugins='
+        line: "plugins=(git zsh-autosuggestions zsh-syntax-highlighting you-should-use sudo)"
+        create: yes
+        state: present
+      tags: zshrc
+
+
+## NEOVIM
+
+    - name: Download LazyVim starter config for Neovim
+      git:
+        repo: https://github.com/LazyVim/starter
+        dest: "{{ ansible_env.HOME }}/.config/nvim"
+        force: yes
+      tags: nvim
+
+    - name: Change ownership of nvim config
+      file:
+        path: "{{ ansible_env.HOME }}/.config/nvim"
+        state: directory
+        recurse: yes
+        owner: "{{ ansible_user_id }}"
+      tags: nvim
+
+### DOCKER
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user | default('user') }}"
+        groups: docker
+        append: yes
+      become: yes
