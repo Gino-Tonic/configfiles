@@ -20,12 +20,17 @@
       - bat
       - tor
       - zsh
-      - zsh-syntax-highlighting
-      - zsh-autosuggestions
+      #- zsh-syntax-highlighting
+      #- zsh-autosuggestions
       - regolith-desktop
       - regolith-session-flashback
       - regolith-look-lascaille
       - regolith-look-ayu-dark
+      - i3xrocks-battery
+      - i3xrocks-volume
+      - i3xrocks-cpu-usage
+      - i3xrocks-memory
+      - i3xrocks-microphone
       - code
       - docker-ce
       - docker-ce-cli
@@ -36,12 +41,12 @@
 
   tasks:
     - name: Install buildessentials
+      become: yes
       apt:
         name: "{{ buildessentials }}"
         state: present
         update_cache: yes
       tags: buildessentials
-      become: yes
 
 
 
@@ -71,6 +76,37 @@
             repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.asc] https://packages.microsoft.com/repos/code stable main"
             state: present
 
+
+    - name: Regolith key add
+      become: yes
+      block:
+        - name: regolith | add key
+          ansible.builtin.get_url:
+            url: https://archive.regolith-desktop.com/regolith.key
+            dest: /usr/share/keyrings/regolith-archive-keyring.gpg
+            mode: '0644'
+          register: regolith_key
+
+        - name: regolith | convert key to gpg format if needed
+          ansible.builtin.command: >
+            gpg --dearmor /usr/share/keyrings/regolith-archive-keyring.gpg
+            -o /usr/share/keyrings/regolith-archive-keyring.gpg
+          when: regolith_key.changed
+          args:
+            creates: /usr/share/keyrings/regolith-archive-keyring.gpg
+
+        - name: regolith | add apt repository
+          ansible.builtin.apt_repository:
+            repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/regolith-archive-keyring.gpg] https://archive.regolith-desktop.com/ubuntu/stable noble v3.2"
+            filename: regolith
+            state: present
+
+        - name: regolith | update apt cache
+          ansible.builtin.apt:
+            update_cache: yes
+
+
+
     - name: Update apt cache and install required packages
       apt:
         name: "{{ packages }}"
@@ -88,7 +124,7 @@
       tags: zsh
 
     - name: Install Oh My Zsh
-      cmd:
+      git:
         repo: https://github.com/ohmyzsh/ohmyzsh.git
         dest: "{{ oh_my_zsh_dir }}"
         update: yes
@@ -100,19 +136,19 @@
         state: directory
       tags: zsh_plugins
 
-    # - name: Install zsh-autosuggestions plugin
-    #   git:
-    #     repo: https://github.com/zsh-users/zsh-autosuggestions.git
-    #     dest: "{{ zsh_plugins_dir }}/zsh-autosuggestions"
-    #     update: yes
-    #   tags: zsh_plugins
+    - name: Install zsh-autosuggestions plugin
+      git:
+        repo: https://github.com/zsh-users/zsh-autosuggestions.git
+        dest: "{{ zsh_plugins_dir }}/zsh-autosuggestions"
+        update: yes
+      tags: zsh_plugins
 
-    # - name: Install zsh-syntax-highlighting plugin
-    #   git:
-    #     repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
-    #     dest: "{{ zsh_plugins_dir }}/zsh-syntax-highlighting"
-    #     update: yes
-    #   tags: zsh_plugins
+    - name: Install zsh-syntax-highlighting plugin
+      git:
+        repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+        dest: "{{ zsh_plugins_dir }}/zsh-syntax-highlighting"
+        update: yes
+      tags: zsh_plugins
 
     - name: Install you-should-use plugin
       git:
@@ -162,3 +198,36 @@
         groups: docker
         append: yes
       become: yes
+
+
+#### REGOLITH Configuration
+
+    - name: Ensure Regolith Xresources directory exists
+      file:
+        path: "{{ ansible_env.HOME }}/.config/regolith3"
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_env.USER }}"
+        group: "{{ ansible_env.USER }}"
+
+    - name: Set focused window border color and gaps in Xresources
+      blockinfile:
+        path: "{{ ansible_env.HOME }}/.config/regolith3/Xresources"
+        block: |
+          wm.border.focused.color: #800080
+          wm.gaps.inner.size: 20
+        create: yes
+        owner: "{{ ansible_env.USER }}"
+        group: "{{ ansible_env.USER }}"
+        mode: '0644'
+
+    # - name: Reload Regolith look to apply changes
+    #   become: yes
+    #   shell: regolith-look refresh
+      # environment:
+      #   DISPLAY: ":0"
+      #   XDG_RUNTIME_DIR: "/run/user/{{ ansible_uid }}"
+      # args:
+      #   warn: false
+
+
