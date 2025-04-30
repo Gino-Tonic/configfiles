@@ -17,6 +17,7 @@
       - neovim
       - nmap
       - curl
+      - fail2ban
       - bat
       - tor
       - zsh
@@ -230,4 +231,8 @@
       # args:
       #   warn: false
 
-
+    - name: Ensure Fail2Ban service is running
+      systemd:
+        name: fail2ban
+        enabled: true
+        state: started
