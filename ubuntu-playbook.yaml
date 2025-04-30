@@ -11,12 +11,18 @@
       - curl
       - gpg
       - ca-certificates
+      - apt-transport-https
+      - software-properties-common
+      - python3-pip
+      - virtualenv
+      - python3-setuptools
 
     packages:
       - tmux
       - neovim
       - nmap
       - curl
+      - bat
       - fail2ban
       - bat
       - tor
@@ -35,10 +41,17 @@
       - code
       - docker-ce
       - docker-ce-cli
+      - containerd.io
       - docker-compose-plugin
+      - docker-buildx-plugin
 
     oh_my_zsh_dir: "{{ ansible_env.HOME }}/.oh-my-zsh"
     zsh_plugins_dir: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/plugins"
+
+
+
+
+
 
   tasks:
     - name: Install buildessentials
@@ -50,63 +63,108 @@
       tags: buildessentials
 
 
-
-    - name: Docker key add
+    - name: Install aptitude
       become: yes
-      block:
-        - name: docker | add key
-          ansible.builtin.get_url:
-            url: https://download.docker.com/linux/ubuntu/gpg
-            dest: /etc/apt/keyrings/docker.asc
-            
-        - name: docker | apt source
-          ansible.builtin.apt_repository:
-            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-            state: present
+      apt:
+        name: aptitude
+        state: latest
+        update_cache: true
 
+
+### DOCKER
+    - name: Check if Docker repository exists
+      stat:
+        path: /etc/apt/sources.list.d/docker.list
+      register: docker_status
+
+    - name: Create Docker GPG key directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      when: not docker_status.stat.exists
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+      when: not docker_status.stat.exists
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: >-
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu
+          {{ ansible_distribution_release }} stable
+        filename: docker
+        update_cache: yes
+      when: not docker_status.stat.exists
+
+
+### VSCODE
     - name: VSCode key add
       become: yes
       block:
+        - name: Check if VS Code repository exists
+          stat:
+            path: /etc/apt/sources.list.d/packages_microsoft_com_repos_code.list
+          register: vscode_status
+
         - name: VSCode | add key
           ansible.builtin.get_url:
             url: https://packages.microsoft.com/keys/microsoft.asc
             dest: /etc/apt/keyrings/microsoft.asc
+          when: not vscode_status.stat.exists 
             
         - name: VSCode | apt source
           ansible.builtin.apt_repository:
             repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.asc] https://packages.microsoft.com/repos/code stable main"
             state: present
+            filename: vscode
+          when: not vscode_status.stat.exists 
 
 
+### REGOLITH
     - name: Regolith key add
       become: yes
       block:
-        - name: regolith | add key
-          ansible.builtin.get_url:
-            url: https://archive.regolith-desktop.com/regolith.key
-            dest: /usr/share/keyrings/regolith-archive-keyring.gpg
-            mode: '0644'
-          register: regolith_key
+        - name: Check if regolith repository exists
+          stat:
+            path: /etc/apt/sources.list.d/regolith.list 
+          register: regolith_status
 
-        - name: regolith | convert key to gpg format if needed
-          ansible.builtin.command: >
-            gpg --dearmor /usr/share/keyrings/regolith-archive-keyring.gpg
-            -o /usr/share/keyrings/regolith-archive-keyring.gpg
-          when: regolith_key.changed
-          args:
-            creates: /usr/share/keyrings/regolith-archive-keyring.gpg
+        - name: regolith | download and convert key
+          block:
+            - name: regolith | add key
+              ansible.builtin.get_url:
+                url: https://archive.regolith-desktop.com/regolith.key
+                dest: /usr/share/keyrings/regolith-archive-keyring.gpg
+                mode: '0644'
+              register: regolith_key
+
+            - name: regolith | convert key to GPG format
+              ansible.builtin.command: >
+                gpg --dearmor /usr/share/keyrings/regolith-archive-keyring.gpg
+              args:
+                creates: /usr/share/keyrings/regolith-archive-keyring.gpg
+              when: regolith_key.changed
+          when: not regolith_status.stat.exists
 
         - name: regolith | add apt repository
           ansible.builtin.apt_repository:
-            repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/regolith-archive-keyring.gpg] https://archive.regolith-desktop.com/ubuntu/stable noble v3.2"
+            repo: >-
+              deb [arch=amd64 signed-by=/usr/share/keyrings/regolith-archive-keyring.gpg]
+              https://archive.regolith-desktop.com/ubuntu/stable
+              noble v3.2
             filename: regolith
             state: present
-
-        - name: regolith | update apt cache
-          ansible.builtin.apt:
-            update_cache: yes
+          when: not regolith_status.stat.exists
 
 
+
+
+### INSTALL PACKAGES FROM APT
 
     - name: Update apt cache and install required packages
       apt:
@@ -116,6 +174,13 @@
       tags: packages
       become: yes
 
+
+
+
+
+
+
+
 ## Oh-my-zsh config
 
     - name: Set zsh as default shell
@@ -124,11 +189,17 @@
         shell: /usr/bin/zsh
       tags: zsh
 
+    - name: Check if Oh My Zsh is already installed
+      stat:
+        path: "{{ oh_my_zsh_dir }}/.git"
+      register: ohmyzsh_git
+
     - name: Install Oh My Zsh
       git:
         repo: https://github.com/ohmyzsh/ohmyzsh.git
         dest: "{{ oh_my_zsh_dir }}"
         update: yes
+      when: not ohmyzsh_git.stat.exists
       tags: ohmyzsh
 
     - name: Ensure plugins directory exists
@@ -166,6 +237,17 @@
         create: yes
         state: present
       tags: zshrc
+      
+    - name: Add batcat alias to .zshrc
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        regexp: '^alias cat='
+        line: 'alias cat="batcat"'
+        insertafter: '^plugins=.*'
+        create: yes
+        state: present
+      tags: zshrc
+
 
 
 ## NEOVIM
@@ -184,21 +266,6 @@
         recurse: yes
         owner: "{{ ansible_user_id }}"
       tags: nvim
-
-### DOCKER
-
-    - name: Ensure Docker service is running
-      systemd:
-        name: docker
-        enabled: true
-        state: started
-
-    - name: Add current user to docker group
-      user:
-        name: "{{ ansible_user | default('user') }}"
-        groups: docker
-        append: yes
-      become: yes
 
 
 #### REGOLITH Configuration
@@ -236,3 +303,24 @@
         name: fail2ban
         enabled: true
         state: started
+
+
+### CONFIG DOCKER
+    - name: Start and enable Docker service
+      become: yes
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add current user to docker group
+      become: yes
+      user:
+        name: "{{ ansible_user | default('user') }}"
+        groups: docker
+        append: yes
+
+    - name: Verify Docker installation
+      command: docker run hello-world
+      register: result
+      changed_when: false
