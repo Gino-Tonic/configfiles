@@ -24,6 +24,7 @@
       - curl
       - bat
       - fail2ban
+      - tldr
       - bat
       - tor
       - zsh
@@ -47,6 +48,7 @@
 
     oh_my_zsh_dir: "{{ ansible_env.HOME }}/.oh-my-zsh"
     zsh_plugins_dir: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/plugins"
+    zsh_theme_dir: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/themes"
 
 
 
@@ -247,6 +249,23 @@
         create: yes
         state: present
       tags: zshrc
+
+    - name: Install Powerlevel10k theme
+      git:
+        repo: https://github.com/romkatv/powerlevel10k.git
+        dest: "{{ zsh_theme_dir }}/powerlevel10k"
+        update: yes
+      tags: zsh_theme
+
+    - name: Set Powerlevel10k theme in .zshrc
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        regexp: '^ZSH_THEME='
+        line: 'ZSH_THEME="powerlevel10k/powerlevel10k"'
+        create: yes
+        state: present
+      tags: zshrc
+
 
 
 
